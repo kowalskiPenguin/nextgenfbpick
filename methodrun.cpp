@@ -306,10 +306,19 @@ void ProcNextgenFirstBreakPicker::run()
 
 			foreach (QVector<int> indexesInGroup, groups_.values()) {
 				QVector<int> group = indexesInGroup;
-				if (group.isEmpty()) continue;
+
+				if (group.size() <= 1) continue;
+
+				int base = m_spatialApproximationBase;
+				if (base > 1 && group.size() == base - 1) {
+					base = qMax(3, (base / 2) | 1);
+				}
+
+				if (group.size() < base) {
+					continue;
+				}
 
 
-				// 1) build vector of (radius, traceId) and sort by radius ascending
 				QVector<QPair<double,int> > rlist;
 				for (int k = 0; k < indexesInGroup.size(); ++k) {
 					int tid = indexesInGroup[k];
@@ -327,31 +336,29 @@ void ProcNextgenFirstBreakPicker::run()
 
 				std::sort(rlist.begin(), rlist.end(), CompareByRadiusFunctor());
 
-				// build arrays of traceIds ordered
+
 				std::vector<int> traceIds;
-				std::vector<double> radii;
-				for (int i = 0; i < rlist.size(); ++i) {
-					radii.push_back(rlist[i].first);
-					traceIds.push_back(rlist[i].second);
+				traceIds.reserve(rlist.size());
+				for (const auto& p : rlist) {
+					traceIds.push_back(p.second);
 				}
+
+				int halfWin = (base - 1) / 2;
 
 				for (int centerIdx = 0; centerIdx < traceIds.size(); ++centerIdx) {
 					int centerTraceId = traceIds[centerIdx];
 
-					// --- 1. Собираем пачку соседей (±2 от центра) ---
 					std::vector<const float*> buffers;
 					std::vector<float> weights;
-					buffers.reserve(5);
-					weights.reserve(5);
+					buffers.reserve(base);
+					weights.reserve(base);
 
-					int halfWin = 2; // можно менять на 1..3
 					for (int offset = -halfWin; offset <= halfWin; ++offset) {
 						int neighIdx = centerIdx + offset;
-
-						// обработка краёв через «зеркало»
 						if (neighIdx < 0) {
-							int refl = centerIdx - offset;   // зеркальное отражение
-							if (refl >= traceIds.size()) refl = 0; // fallback
+							int refl = centerIdx - offset;
+							if (refl >= traceIds.size()) refl = 0;
+              
 							neighIdx = refl;
 						}
 						if (neighIdx >= traceIds.size()) {
@@ -362,35 +369,37 @@ void ProcNextgenFirstBreakPicker::run()
 
 						int neighTraceId = traceIds[neighIdx];
 						const float* buf = wfAnal.getProcessedBufferForTrace(neighTraceId, startIndex);
-						if (!buf) continue;
 
+						if (!buf) {
+							buffers.clear();
+							break;
+						}
 						buffers.push_back(buf);
-
-						// вес: чем ближе к центру, тем больше
-						float w = 1.0f / (1.0f + std::abs(offset));
-						weights.push_back(w);
+						weights.push_back(1.0f / (1.0f + std::abs(offset)));
 					}
 
-					// --- 2. Вычисление центра энергии / ширины окна ---
+					if (buffers.size() < base) continue;
+
 					int bufferLength = lengthOfBuffer;
 					int centerSample = qFloor(findApproximateEnergyCenter(buffers[halfWin], 0, bufferLength));
 
-					int winHalf;
+					int winHalfStacked;
 					if (m_tuneToEnergyCenter) {
-						winHalf = qFloor(rmsSignalDuration / 2);
+						winHalfStacked = qFloor(rmsSignalDuration / 2);
 					} else {
+						const float* centerBuffer = buffers[halfWin];
+						memcpy(&signalToAutocorr.at(0), centerBuffer, sizeof(float) * bufferLength);
 						autocorrRes = calculateAutocorrelation_FFT(signalToAutocorr);
-						winHalf = findDominantPeriod(autocorrRes, 1) * m_signalWidthCoefficent;
+						winHalfStacked = findDominantPeriod(autocorrRes, 1) * m_signalWidthCoefficent;
 					}
 
-					// --- 3. Вызов многотрассовой аппроксимации ---
-					Eigen::VectorXf coeffs;
-					coeffs = FAWSolver::fitStackedLegendreApproximation(
+					Eigen::VectorXf coeffs = FAWSolver::fitStackedLegendreApproximation(
+
 								 buffers,
 								 weights,
 								 bufferLength,
 								 centerSample,
-								 winHalf,
+								 winHalfStacked,
 								 m_polynomDegree,
 								 m_lambda,
 								 m_weightingMode,
@@ -398,10 +407,9 @@ void ProcNextgenFirstBreakPicker::run()
 								 m_compressionCoefficient
 								 );
 
-					// --- 4. Сохраняем только для target (centerTraceId) ---
 					coeffsMap.insert(centerTraceId, coeffs);
+					traceParamsMap[centerTraceId].windowHalfWidth = winHalfStacked;
 				}
-
 			}
 
 
