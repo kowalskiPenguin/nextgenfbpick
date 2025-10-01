@@ -306,7 +306,6 @@ void ProcNextgenFirstBreakPicker::run()
 
 			foreach (QVector<int> indexesInGroup, groups_.values()) {
 				QVector<int> group = indexesInGroup;
-
 				if (group.size() <= 1) continue;
 
 				int base = m_spatialApproximationBase;
@@ -317,7 +316,6 @@ void ProcNextgenFirstBreakPicker::run()
 				if (group.size() < base) {
 					continue;
 				}
-
 
 				QVector<QPair<double,int> > rlist;
 				for (int k = 0; k < indexesInGroup.size(); ++k) {
@@ -335,7 +333,6 @@ void ProcNextgenFirstBreakPicker::run()
 				};
 
 				std::sort(rlist.begin(), rlist.end(), CompareByRadiusFunctor());
-
 
 				std::vector<int> traceIds;
 				traceIds.reserve(rlist.size());
@@ -358,7 +355,6 @@ void ProcNextgenFirstBreakPicker::run()
 						if (neighIdx < 0) {
 							int refl = centerIdx - offset;
 							if (refl >= traceIds.size()) refl = 0;
-              
 							neighIdx = refl;
 						}
 						if (neighIdx >= traceIds.size()) {
@@ -369,7 +365,6 @@ void ProcNextgenFirstBreakPicker::run()
 
 						int neighTraceId = traceIds[neighIdx];
 						const float* buf = wfAnal.getProcessedBufferForTrace(neighTraceId, startIndex);
-
 						if (!buf) {
 							buffers.clear();
 							break;
@@ -394,7 +389,6 @@ void ProcNextgenFirstBreakPicker::run()
 					}
 
 					Eigen::VectorXf coeffs = FAWSolver::fitStackedLegendreApproximation(
-
 								 buffers,
 								 weights,
 								 bufferLength,
